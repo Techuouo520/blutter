@@ -64,6 +64,7 @@ class ArrayClassificationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._tmp.cleanup)
         outdir = pathlib.Path(cls._tmp.name) / "out"
         result = subprocess.run(
             [BLUTTER_BIN, "-i", SAMPLE, "-o", str(outdir)],
@@ -72,7 +73,7 @@ class ArrayClassificationTests(unittest.TestCase):
             timeout=1800,
         )
         if result.returncode != 0:
-            raise unittest.SkipTest(f"analysis failed: {result.stderr[-2000:]}")
+            raise AssertionError(f"analysis failed: {result.stderr[-2000:]}")
         cls.stderr = result.stderr
 
         cls.counts: dict[str, int] = {}

@@ -1,0 +1,97 @@
+#include <cstdint>
+#include <iostream>
+#include <stdexcept>
+
+// Minimal instruction and VM-layout fixtures. The helper and index expression
+// below are extracted from the production source by CMake, not reimplemented.
+enum {
+    ARM64_INS_LDUR, ARM64_INS_LDURSW, ARM64_INS_LDRB, ARM64_INS_LDRSB,
+    ARM64_INS_LDRH, ARM64_INS_LDURSH, ARM64_INS_STUR, ARM64_INS_STRB,
+    ARM64_INS_STURH, UNSUPPORTED
+};
+namespace dart {
+constexpr int kHeapObjectTag = 1;
+struct Array {
+    static constexpr int data_offset() { return TEST_COMPRESSED ? 0x10 : 0x18; }
+};
+struct UntaggedTypedData {
+    static constexpr int payload_offset() { return TEST_COMPRESSED ? 0x18 : 0x20; }
+};
+}
+struct ArrayOp {
+    enum ArrayType { List, TypedUnknown, TypedSigned, TypedUnsigned, Unknown };
+    uint8_t size = 0;
+    bool isLoad = false;
+    ArrayType arrType = Unknown;
+    ArrayOp() = default;
+    ArrayOp(uint8_t width, bool load, ArrayType type)
+        : size(width), isLoad(load), arrType(type) {}
+};
+struct Operand { int reg; };
+struct AsmIterator {
+    int instruction;
+    int width;
+    bool writebackFlag = false;
+    int id() const { return instruction; }
+    bool writeback() const { return writebackFlag; }
+    Operand ops(int) const { return Operand{width}; }
+};
+int GetCsRegSize(int reg) { return reg; }
+struct VarStorage { static int NewSmallImm(int value) { return value; } };
+
+@ARRAY_HELPER@
+
+int elementIndex(int offset, const ArrayOp& arrayOp)
+{
+    @ARRAY_INDEX@;
+    return idx;
+}
+
+void check(bool condition, const char* message)
+{
+    if (!condition) throw std::runtime_error(message);
+}
+
+int main()
+{
+    try {
+        const int listOffset = dart::Array::data_offset() - dart::kHeapObjectTag;
+        const int typedOffset = dart::UntaggedTypedData::payload_offset() - dart::kHeapObjectTag;
+        const int pointerWidth = TEST_COMPRESSED ? 4 : 8;
+        for (int opcode : {ARM64_INS_LDUR, ARM64_INS_STUR}) {
+            AsmIterator insn{opcode, pointerWidth};
+            auto list = getArrayOp(insn, listOffset);
+            check(list.arrType == ArrayOp::List, "tagged elements must classify as List");
+            check(list.size == pointerWidth, "element width must follow the register");
+            check(list.isLoad == (opcode == ARM64_INS_LDUR), "load/store direction changed");
+            check(getArrayOp(insn, typedOffset).arrType == ArrayOp::Unknown,
+                  "TypedData must not classify as List");
+            for (int index : {0, 1, 7, 31}) {
+                check(elementIndex(listOffset + index * pointerWidth, list) == index,
+                      "List index must use the Array payload base");
+                const ArrayOp typed{4, true, ArrayOp::TypedSigned};
+                check(elementIndex(typedOffset + index * 4, typed) == index,
+                      "TypedData index must use its own payload base");
+            }
+            insn.writebackFlag = true;
+            check(getArrayOp(insn, listOffset).size == 0, "writeback must be rejected");
+        }
+        AsmIterator byteLoad{ARM64_INS_LDRB, 1};
+        check(getArrayOp(byteLoad, listOffset).arrType == ArrayOp::List,
+              "byte load at List data must classify as List");
+        check(getArrayOp(byteLoad, typedOffset).arrType == ArrayOp::TypedUnsigned,
+              "byte TypedData load must retain unsigned classification");
+        for (int opcode : {ARM64_INS_LDURSW, ARM64_INS_LDRSB, ARM64_INS_LDURSH}) {
+            AsmIterator insn{opcode, 4};
+            check(getArrayOp(insn, typedOffset).arrType == ArrayOp::TypedSigned,
+                  "signed TypedData classification changed");
+        }
+        AsmIterator unsupported{UNSUPPORTED, 8};
+        check(getArrayOp(unsupported, listOffset).size == 0, "unknown opcode must be rejected");
+        std::cout << "Array classification and indices passed (compressed="
+                  << TEST_COMPRESSED << ")\n";
+    } catch (const std::exception& error) {
+        std::cerr << error.what() << '\n';
+        return 1;
+    }
+}

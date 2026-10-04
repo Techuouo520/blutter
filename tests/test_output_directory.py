@@ -41,7 +41,11 @@ def find_blutter() -> pathlib.Path | None:
 
     if not BIN_DIR.is_dir():
         return None
-    candidates = [p for p in BIN_DIR.iterdir() if p.is_file() and os.access(p, os.X_OK)]
+    candidates = [
+        p for p in BIN_DIR.iterdir()
+        if p.is_file() and p.name.startswith("blutter_")
+        and (p.suffix.lower() == ".exe" if os.name == "nt" else os.access(p, os.X_OK))
+    ]
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
@@ -55,11 +59,13 @@ class OutputDirectoryTests(unittest.TestCase):
     def run_blutter(self, outdir: pathlib.Path) -> subprocess.CompletedProcess:
         """Run with an input that cannot load, so only the outdir logic runs."""
         assert BLUTTER is not None
-        with tempfile.NamedTemporaryFile(suffix=".so") as bogus_input:
-            bogus_input.write(b"not an ELF or Mach-O file")
-            bogus_input.flush()
+        with tempfile.TemporaryDirectory() as tmp:
+            # Close the file before Blutter opens it: Windows disallows reopening
+            # a NamedTemporaryFile while its default delete-on-close handle lives.
+            bogus_input = pathlib.Path(tmp) / "invalid.so"
+            bogus_input.write_bytes(b"not an ELF or Mach-O file" + bytes(128))
             return subprocess.run(
-                [str(BLUTTER), "-i", bogus_input.name, "-o", str(outdir)],
+                [str(BLUTTER), "-i", str(bogus_input), "-o", str(outdir)],
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -117,6 +123,8 @@ class OutputDirectoryTests(unittest.TestCase):
 
     def test_unwritable_parent_is_still_reported(self):
         """Fixing the missing-parent case must not swallow genuine failures."""
+        if os.name == "nt":
+            self.skipTest("POSIX directory permission bits do not apply on Windows")
         if os.geteuid() == 0:
             self.skipTest("running as root: permission checks do not apply")
         with tempfile.TemporaryDirectory() as tmp:
