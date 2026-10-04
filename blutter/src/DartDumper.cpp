@@ -202,10 +202,10 @@ std::vector<std::pair<intptr_t, std::string>> DartDumper::DumpStructHeaderFile(s
 					const auto imm = pool.RawValueAt(i + 1);
 					auto dartFn = app.GetFunction(imm - app.base());
 					if (dartFn != nullptr) {
-						name = std::format("UnlinkedCall_{:#x}_{:#x}", offset, dartFn->Address(), offset);
+						name = std::format("UnlinkedCall_{:#x}_{:#x}", offset, dartFn->Address());
 					}
 					else {
-						name = std::format("UnlinkedCall_{:#x}_unknown", offset);
+						name = std::format("UnlinkedCall_{:#x}_{:#x}", offset, imm - app.base());
 					}
 				}
 				else {
