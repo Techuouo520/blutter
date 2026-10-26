@@ -16,7 +16,7 @@ def extract_snapshot_hash_flags(libapp_file):
     with open(libapp_file, 'rb') as f:
         elf = ELFFile(f)
         # find the snapshot data symbol
-        # Dart >= 3.11 (May 2026) dropped the VM isolate and renamed the symbols,
+        # Dart >= 3.13 dropped the VM isolate and renamed the symbols,
         # so "_kDartVmSnapshotData" became "_kDartSnapshotData"
         dynsym = elf.get_section_by_name('.dynsym')
         syms = dynsym.get_symbol_by_name('_kDartVmSnapshotData') or dynsym.get_symbol_by_name('_kDartSnapshotData')
